@@ -76,7 +76,20 @@ export const accountRouter = router({
       z
         .object({
           accountId: z.number(),
-          amount: z.number().positive(),
+          // Accept string or number for amount, normalize and reject formats with multiple leading zeros
+          amount: z.preprocess(
+            (val) => {
+              if (typeof val === "string") return val.trim();
+              if (typeof val === "number") return String(val);
+              return val;
+            },
+            z
+              .string()
+              .refine((s) => /^(?:0|[1-9]\d*)(?:\.\d{1,2})?$/.test(s), {
+                message: "Invalid amount format (no leading zeros); use e.g. 1.23",
+              })
+              .transform((s) => Number(Number(s).toFixed(2)))
+          ),
           fundingSource: z.object({
             type: z.enum(["card", "bank"]),
             accountNumber: z.string(),
@@ -99,15 +112,11 @@ export const accountRouter = router({
         )
     )
     .mutation(async ({ input, ctx }) => {
-      // Normalize amount to a number with 2 decimal places (cents precision)
-      const rawAmount = parseFloat(input.amount.toString());
-      if (!isFinite(rawAmount) || isNaN(rawAmount)) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid amount" });
-      }
-      const amount = Number(rawAmount.toFixed(2));
+      // `amount` is normalized by Zod to a number with 2 decimal places
+      const amount = input.amount as number;
 
       // Reject zero or near-zero amounts after rounding (must be at least $0.01)
-      if (amount < 0.01) {
+      if (typeof amount !== "number" || isNaN(amount) || amount < 0.01) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Amount must be at least $0.01" });
       }
 

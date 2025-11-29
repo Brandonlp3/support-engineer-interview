@@ -39,12 +39,25 @@ export function FundingModal({ accountId, onClose, onSuccess }: FundingModalProp
     register,
     handleSubmit,
     watch,
+    setValue,
     formState: { errors },
   } = useForm<FundingFormData>({
     defaultValues: {
       fundingType: "card",
     },
   });
+
+  // Normalize amount input: remove unnecessary leading zeros (but allow 0.xxx)
+  function normalizeAmountInput(raw: string) {
+    if (!raw) return "";
+    let s = raw.trim();
+    // If it's a decimal like 0.12, keep as-is
+    if (/^0\./.test(s)) return s;
+    // Remove leading zeros
+    s = s.replace(/^0+/, "");
+    if (s === "") return "0";
+    return s;
+  }
 
   const fundingType = watch("fundingType");
   const fundAccountMutation = trpc.account.fundAccount.useMutation();
@@ -100,6 +113,18 @@ export function FundingModal({ accountId, onClose, onSuccess }: FundingModalProp
                   },
                 })}
                 type="text"
+                onBlur={(e) => {
+                  const norm = normalizeAmountInput(e.target.value);
+                  // setValue comes from useForm; update the form value with normalized string
+                  try {
+                    // setValue may not be available in the destructured object if not included earlier
+                    // so guard access via (register as any).setValue is not ideal; instead call using window if available
+                    // But we can call setValue directly (we destructured it above)
+                    setValue("amount", norm as any, { shouldValidate: true, shouldDirty: true });
+                  } catch (err) {
+                    // ignore if setValue is not available
+                  }
+                }}
                 className="pl-7 block w-full rounded-md border-gray-300 focus:ring-blue-500 focus:border-blue-500 sm:text-sm p-2 border dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100"
                 placeholder="0.00"
               />
