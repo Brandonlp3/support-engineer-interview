@@ -142,6 +142,9 @@ export const authRouter = router({
       const expiresAt = new Date();
       expiresAt.setDate(expiresAt.getDate() + 7);
 
+      // Invalidate any existing sessions for this user to enforce single-session policy
+      await db.delete(sessions).where(eq(sessions.userId, user.id));
+
       await db.insert(sessions).values({
         userId: user.id,
         token,
@@ -150,9 +153,9 @@ export const authRouter = router({
 
       // Set cookie
       if ("setHeader" in ctx.res) {
-        ctx.res.setHeader("Set-Cookie", `session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=604800`);
+        ctx.res.setHeader("Set-Cookie", `session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=21600`);
       } else {
-        (ctx.res as Headers).set("Set-Cookie", `session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=604800`);
+        (ctx.res as Headers).set("Set-Cookie", `session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=21600`);
       }
 
       return { user: { ...user, password: undefined }, token };
@@ -191,6 +194,9 @@ export const authRouter = router({
       const expiresAt = new Date();
       expiresAt.setDate(expiresAt.getDate() + 7);
 
+      // Invalidate any existing sessions for this user to enforce single-session policy
+      await db.delete(sessions).where(eq(sessions.userId, user.id));
+
       await db.insert(sessions).values({
         userId: user.id,
         token,
@@ -198,9 +204,9 @@ export const authRouter = router({
       });
 
       if ("setHeader" in ctx.res) {
-        ctx.res.setHeader("Set-Cookie", `session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=604800`);
+        ctx.res.setHeader("Set-Cookie", `session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=21600`);
       } else {
-        (ctx.res as Headers).set("Set-Cookie", `session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=604800`);
+        (ctx.res as Headers).set("Set-Cookie", `session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=21600`);
       }
 
       return { user: { ...user, password: undefined }, token };
@@ -231,5 +237,22 @@ export const authRouter = router({
     }
 
     return { success: true, message: ctx.user ? "Logged out successfully" : "No active session" };
+  }),
+  logoutAll: publicProcedure.mutation(async ({ ctx }) => {
+    if (!ctx.user) {
+      throw new TRPCError({ code: "UNAUTHORIZED", message: "No active session" });
+    }
+
+    // Delete all sessions for this user
+    await db.delete(sessions).where(eq(sessions.userId, ctx.user.id));
+
+    // Clear cookie
+    if ("setHeader" in ctx.res) {
+      ctx.res.setHeader("Set-Cookie", `session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0`);
+    } else {
+      (ctx.res as Headers).set("Set-Cookie", `session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0`);
+    }
+
+    return { success: true, message: "All sessions logged out" };
   }),
 });
