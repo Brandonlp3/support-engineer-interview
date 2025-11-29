@@ -7,31 +7,111 @@ import { db } from "@/lib/db";
 import { users, sessions } from "@/lib/db/schema";
 import { ssnLookupHash, ssnLast4 } from "@/lib/crypto/ssn";
 import { eq } from "drizzle-orm";
+import { date } from "drizzle-orm/mysql-core";
+
+const US_STATE_CODES = [
+  'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA',
+  'HI', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME', 'MD',
+  'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ',
+  'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC',
+  'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY',
+  'DC', 'AS', 'GU', 'MP', 'PR', 'VI'
+] as const;
 
 export const authRouter = router({
   signup: publicProcedure
     .input(
       z.object({
         email: z.string().email().toLowerCase(),
-        password: z.string().min(8),
+        password: z
+                  .string()
+                  .min(8, "Password must be at least 8 characters")
+                  .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
+                  .regex(/[a-z]/, "Password must contain at least one lowercase letter")
+                  .regex(/[0-9]/, "Password must contain at least one number")
+                  .regex(/[^A-Za-z0-9]/, "Password must contain at least one special character"),
         firstName: z.string().min(1),
         lastName: z.string().min(1),
         phoneNumber: z.string().regex(/^\+?\d{10,15}$/),
-        dateOfBirth: z.string(),
+        dateOfBirth: z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date format")
+          // valid calendar date (catches 2021-02-30 etc.)
+          .refine((date) => {
+            const parts = date.split("-").map((p) => parseInt(p, 10));
+            if (parts.length !== 3) return false;
+            const [y, m, d] = parts;
+            if (!y || !m || !d) return false;
+            // month/day quick sanity
+            if (m < 1 || m > 12) return false;
+            if (d < 1 || d > 31) return false;
+            const utc = Date.UTC(y, m - 1, d);
+            const dob = new Date(utc);
+            return dob.getUTCFullYear() === y && dob.getUTCMonth() === (m - 1) && dob.getUTCDate() === d;
+          }, { message: "Invalid calendar date" })
+          // not in the future
+          .refine((date) => {
+            const [y, m, d] = date.split("-").map((p) => parseInt(p, 10));
+            const utc = Date.UTC(y, m - 1, d);
+            const todayUtc = Date.UTC(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
+            return utc <= todayUtc;
+          }, { message: "Date of birth cannot be in the future" })
+          // year not before 1900
+          .refine((date) => {
+            const y = parseInt(date.split("-")[0], 10);
+            return y >= 1900;
+          }, { message: "Date of birth must be 1900 or later" })
+          // age >= 18
+          .refine((date) => {
+            const [y, m, d] = date.split("-").map((p) => parseInt(p, 10));
+            const today = new Date();
+            let age = today.getFullYear() - y;
+            const monthDiff = today.getMonth() - (m - 1);
+            const dayDiff = today.getDate() - d;
+            if (monthDiff < 0 || (monthDiff === 0 && dayDiff < 0)) age -= 1;
+            return age >= 18;
+          }, { message: "You must be at least 18 years old" })
+          // age <= 120
+          .refine((date) => {
+            const [y, m, d] = date.split("-").map((p) => parseInt(p, 10));
+            const today = new Date();
+            let age = today.getFullYear() - y;
+            const monthDiff = today.getMonth() - (m - 1);
+            const dayDiff = today.getDate() - d;
+            if (monthDiff < 0 || (monthDiff === 0 && dayDiff < 0)) age -= 1;
+            return age <= 120;
+          }, { message: "Invalid date of birth" }),
         ssn: z.string().regex(/^\d{9}$/),
         address: z.string().min(1),
         city: z.string().min(1),
-        state: z.string().length(2).toUpperCase(),
+        state: z.string().length(2)
+          .refine((val) => US_STATE_CODES.includes(val.toUpperCase() as any), {
+            message: "Invalid US state code",
+          })
+          .transform((s) => s.toUpperCase()),
         zipCode: z.string().regex(/^\d{5}$/),
       })
     )
     .mutation(async ({ input, ctx }) => {
-      const existingUser = await db.select().from(users).where(eq(users.email, input.email)).get();
+      // Compute deterministic lookup hash and last4 for SSN early so we can detect conflicts
+      const { ssn, ...rest } = input;
+      const ssn_hash = ssnLookupHash(ssn);
+      const ssn_last4 = ssnLast4(ssn);
 
-      if (existingUser) {
+      // Check for existing user by email or by SSN lookup hash
+      const existingByEmail = await db.select().from(users).where(eq(users.email, input.email)).get();
+      if (existingByEmail) {
         throw new TRPCError({
           code: "CONFLICT",
-          message: "User already exists",
+          message: "User already exists with that email",
+        });
+      }
+
+      const existingBySSN = await db.select().from(users).where(eq(users.ssnHash, ssn_hash)).get();
+      if (existingBySSN) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "An account with that Social Security Number already exists",
         });
       }
 

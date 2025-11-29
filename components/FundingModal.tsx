@@ -62,7 +62,7 @@ export function FundingModal({ accountId, onClose, onSuccess }: FundingModalProp
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700">Amount</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-200">Amount</label>
             <div className="mt-1 relative rounded-md shadow-sm">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                 <span className="text-gray-500 dark:text-gray-400 sm:text-sm">$</span>
@@ -119,7 +119,26 @@ export function FundingModal({ accountId, onClose, onSuccess }: FundingModalProp
                 validate: {
                   validCard: (value) => {
                     if (fundingType !== "card") return true;
-                    return value.startsWith("4") || value.startsWith("5") || "Invalid card number";
+                    // strip non-digits
+                    const digits = value.replace(/\D/g, "");
+                    // common card lengths: 13-19
+                    if (digits.length < 13 || digits.length > 19) return "Card number has invalid length";
+
+                    // Luhn algorithm
+                    let sum = 0;
+                    let shouldDouble = false;
+                    for (let i = digits.length - 1; i >= 0; i--) {
+                      let digit = parseInt(digits.charAt(i), 10);
+                      if (shouldDouble) {
+                        digit *= 2;
+                        if (digit > 9) digit -= 9;
+                      }
+                      sum += digit;
+                      shouldDouble = !shouldDouble;
+                    }
+                    if (sum % 10 !== 0) return "Invalid card number";
+
+                    return true;
                   },
                 },
               })}
@@ -132,7 +151,7 @@ export function FundingModal({ accountId, onClose, onSuccess }: FundingModalProp
 
           {fundingType === "bank" && (
             <div>
-              <label className="block text-sm font-medium text-gray-700">Routing Number</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-200">Routing Number</label>
               <input
                 {...register("routingNumber", {
                   required: "Routing number is required",
