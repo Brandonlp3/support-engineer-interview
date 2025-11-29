@@ -3,7 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { protectedProcedure, router } from "../trpc";
 import { db } from "@/lib/db";
 import { accounts, transactions } from "@/lib/db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 
 function generateAccountNumber(): string {
   return Math.floor(Math.random() * 1000000000)
@@ -81,7 +81,9 @@ export const accountRouter = router({
       })
     )
     .mutation(async ({ input, ctx }) => {
-      const amount = parseFloat(input.amount.toString());
+      // Normalize amount to a number with 2 decimal places (cents precision)
+      const rawAmount = parseFloat(input.amount.toString());
+      const amount = Number(rawAmount.toFixed(2));
 
       // Verify account belongs to user
       const account = await db
@@ -104,7 +106,7 @@ export const accountRouter = router({
         });
       }
 
-      // Create transaction
+      // Create transaction (record the funding)
       await db.insert(transactions).values({
         accountId: input.accountId,
         type: "deposit",
@@ -114,25 +116,30 @@ export const accountRouter = router({
         processedAt: new Date().toISOString(),
       });
 
-      // Fetch the created transaction
-      const transaction = await db.select().from(transactions).orderBy(transactions.createdAt).limit(1).get();
+      // Compute new balance using fixed 2-decimal arithmetic to avoid floating point drift
+      const currentBalance = Number(Number(account.balance).toFixed(2));
+      const newBalance = Number((currentBalance + amount).toFixed(2));
 
-      // Update account balance
+      // Persist updated balance
       await db
         .update(accounts)
         .set({
-          balance: account.balance + amount,
+          balance: newBalance,
         })
         .where(eq(accounts.id, input.accountId));
 
-      let finalBalance = account.balance;
-      for (let i = 0; i < 100; i++) {
-        finalBalance = finalBalance + amount / 100;
-      }
+      // Fetch the created transaction for this account (most-recent)
+      const transaction = await db
+        .select()
+        .from(transactions)
+        .where(eq(transactions.accountId, input.accountId))
+        .orderBy(desc(transactions.createdAt))
+        .limit(1)
+        .get();
 
       return {
         transaction,
-        newBalance: finalBalance, // This will be slightly off due to float precision
+        newBalance,
       };
     }),
 
