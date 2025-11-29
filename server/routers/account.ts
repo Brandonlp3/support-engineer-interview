@@ -4,11 +4,14 @@ import { protectedProcedure, router } from "../trpc";
 import { db } from "@/lib/db";
 import { accounts, transactions } from "@/lib/db/schema";
 import { eq, and, desc } from "drizzle-orm";
+import crypto from "crypto";
+
 
 function generateAccountNumber(): string {
-  return Math.floor(Math.random() * 1000000000)
-    .toString()
-    .padStart(10, "0");
+  const buffer = crypto.randomBytes(5);
+  const randomNum = buffer.readUIntBE(0, 5);
+  const accountNumber = (randomNum % 9000000000) + 1000000000;
+  return accountNumber.toString();
 }
 
 export const accountRouter = router({
