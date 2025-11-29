@@ -5,6 +5,7 @@ import { TRPCError } from "@trpc/server";
 import { publicProcedure, router } from "../trpc";
 import { db } from "@/lib/db";
 import { users, sessions } from "@/lib/db/schema";
+import { ssnLookupHash, ssnLast4 } from "@/lib/crypto/ssn";
 import { eq } from "drizzle-orm";
 
 export const authRouter = router({
@@ -36,9 +37,15 @@ export const authRouter = router({
 
       const hashedPassword = await bcrypt.hash(input.password, 10);
 
+      const { ssn, ...rest } = input;
+      const ssn_hash = ssnLookupHash(ssn);
+      const ssn_last4 = ssnLast4(ssn);
+
       await db.insert(users).values({
-        ...input,
+        ...rest,
         password: hashedPassword,
+        ssnHash: ssn_hash,
+        ssnLast4: ssn_last4,
       });
 
       // Fetch the created user
