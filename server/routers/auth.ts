@@ -24,49 +24,53 @@ export const authRouter = router({
         lastName: z.string().min(1),
         phoneNumber: z.string().regex(/^\+?\d{10,15}$/),
         dateOfBirth: z
-                      .string()
-                      .regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date format")
-                      .refine(
-                        (date) => {
-                          const dob = new Date(date);
-                          const today = new Date();
-                          const age = today.getFullYear() - dob.getFullYear();
-                          const monthDiff = today.getMonth() - dob.getMonth();
-                          const dayDiff = today.getDate() - dob.getDate();
-                          
-                          // Adjust age if birthday hasn't occurred this year
-                          const actualAge = monthDiff < 0 || (monthDiff === 0 && dayDiff < 0) 
-                            ? age - 1 
-                            : age;
-                          
-                          return actualAge >= 18;
-                        },
-                        { message: "You must be at least 18 years old" }
-                      )
-                      .refine(
-                        (date) => {
-                          const dob = new Date(date);
-                          const today = new Date();
-                          return dob < today;
-                        },
-                        { message: "Date of birth cannot be in the future" }
-                      )
-                      .refine(
-                        (date) => {
-                          const dob = new Date(date);
-                          const earliestDate = new Date("1900-01-01");
-                          return dob > earliestDate;
-                        }, 
-                        { message: "Invalid date of birth" }
-                      )
-                      .refine(
-                        (date) => {
-                          const dob = new Date(date);
-                          const minDate = new Date();
-                          minDate.setFullYear(minDate.getFullYear() - 120);
-                          return dob > minDate;
-                        },
-                        { message: "Invalid date of birth" }),
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date format")
+          // valid calendar date (catches 2021-02-30 etc.)
+          .refine((date) => {
+            const parts = date.split("-").map((p) => parseInt(p, 10));
+            if (parts.length !== 3) return false;
+            const [y, m, d] = parts;
+            if (!y || !m || !d) return false;
+            // month/day quick sanity
+            if (m < 1 || m > 12) return false;
+            if (d < 1 || d > 31) return false;
+            const utc = Date.UTC(y, m - 1, d);
+            const dob = new Date(utc);
+            return dob.getUTCFullYear() === y && dob.getUTCMonth() === (m - 1) && dob.getUTCDate() === d;
+          }, { message: "Invalid calendar date" })
+          // not in the future
+          .refine((date) => {
+            const [y, m, d] = date.split("-").map((p) => parseInt(p, 10));
+            const utc = Date.UTC(y, m - 1, d);
+            const todayUtc = Date.UTC(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
+            return utc <= todayUtc;
+          }, { message: "Date of birth cannot be in the future" })
+          // year not before 1900
+          .refine((date) => {
+            const y = parseInt(date.split("-")[0], 10);
+            return y >= 1900;
+          }, { message: "Date of birth must be 1900 or later" })
+          // age >= 18
+          .refine((date) => {
+            const [y, m, d] = date.split("-").map((p) => parseInt(p, 10));
+            const today = new Date();
+            let age = today.getFullYear() - y;
+            const monthDiff = today.getMonth() - (m - 1);
+            const dayDiff = today.getDate() - d;
+            if (monthDiff < 0 || (monthDiff === 0 && dayDiff < 0)) age -= 1;
+            return age >= 18;
+          }, { message: "You must be at least 18 years old" })
+          // age <= 120
+          .refine((date) => {
+            const [y, m, d] = date.split("-").map((p) => parseInt(p, 10));
+            const today = new Date();
+            let age = today.getFullYear() - y;
+            const monthDiff = today.getMonth() - (m - 1);
+            const dayDiff = today.getDate() - d;
+            if (monthDiff < 0 || (monthDiff === 0 && dayDiff < 0)) age -= 1;
+            return age <= 120;
+          }, { message: "Invalid date of birth" }),
         ssn: z.string().regex(/^\d{9}$/),
         address: z.string().min(1),
         city: z.string().min(1),

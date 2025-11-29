@@ -50,6 +50,88 @@ export default function SignupPage() {
     return issues;
   }
 
+  function getDOBIssues(dob: string) {
+    const issues: string[] = [];
+    if (!dob) {
+      issues.push("Date of birth is required");
+      return issues;
+    }
+
+    // Support common input shapes but normalize to year/month/day
+    let y: number | null = null;
+    let m: number | null = null;
+    let d: number | null = null;
+
+    // YYYY-MM-DD
+    const isoMatch = /^\s*(\d{4})-(\d{2})-(\d{2})\s*$/.exec(dob);
+    // MM/DD/YYYY (user-typed in some locales)
+    const slashMatch = /^\s*(\d{1,2})\/(\d{1,2})\/(\d{4})\s*$/.exec(dob);
+
+    if (isoMatch) {
+      y = parseInt(isoMatch[1], 10);
+      m = parseInt(isoMatch[2], 10);
+      d = parseInt(isoMatch[3], 10);
+    } else if (slashMatch) {
+      // interpret as MM/DD/YYYY
+      const mm = parseInt(slashMatch[1], 10);
+      const dd = parseInt(slashMatch[2], 10);
+      const yyyy = parseInt(slashMatch[3], 10);
+      y = yyyy;
+      m = mm;
+      d = dd;
+    } else {
+      // fallback to Date parsing for other shapes
+      const parsed = new Date(dob);
+      if (isNaN(parsed.getTime())) {
+        issues.push("Date of birth is invalid");
+        return issues;
+      }
+      y = parsed.getFullYear();
+      m = parsed.getMonth() + 1;
+      d = parsed.getDate();
+    }
+
+    if (y === null || m === null || d === null) {
+      issues.push("Date of birth is invalid");
+      return issues;
+    }
+
+    // basic year sanity
+    if (y < 1900) {
+      issues.push("Year must be 1900 or later");
+    }
+
+    // build a UTC date to avoid timezone surprises and validate calendar correctness
+    const dobUtc = new Date(Date.UTC(y, m - 1, d));
+    if (dobUtc.getUTCFullYear() !== y || dobUtc.getUTCMonth() !== m - 1 || dobUtc.getUTCDate() !== d) {
+      issues.push("Date of birth is not a valid calendar date");
+      return issues;
+    }
+
+    const today = new Date();
+    const todayUtcMillis = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
+    const dobMillis = dobUtc.getTime();
+    if (dobMillis > todayUtcMillis) {
+      issues.push("Date of birth must be in the past");
+      return issues;
+    }
+
+    // compute age precisely in years
+    let age = today.getFullYear() - y;
+    const monthDiff = today.getMonth() - (m - 1);
+    const dayDiff = today.getDate() - d;
+    if (monthDiff < 0 || (monthDiff === 0 && dayDiff < 0)) age -= 1;
+
+    if (age < 18) {
+      issues.push("You must be at least 18 years old");
+    }
+    if (age > 120) {
+      issues.push("Date of birth looks implausible");
+    }
+
+    return issues;
+  }
+
   const nextStep = async () => {
     // clear previous top-level error
     setError("");
@@ -61,14 +143,25 @@ export default function SignupPage() {
       const pwIssues = getPasswordIssues(password || "");
       if (pwIssues.length > 0) {
         const msg = pwIssues.join("; ");
-        // don't set the top-level `error` here to avoid duplicating the alert box;
-        // set the field-level error so the message appears inline under the password field
+        // show combined message in the top alert and inline under the field
+        setError(msg);
         setFieldError("password", { type: "manual", message: msg as any });
         return;
       }
 
       fieldsToValidate = ["email", "password", "confirmPassword"];
     } else if (step === 2) {
+      // validate DOB inline before progressing
+      const dob = watch("dateOfBirth");
+      const dobIssues = getDOBIssues(dob || "");
+      if (dobIssues.length > 0) {
+        const msg = dobIssues.join("; ");
+        // mirror the password behavior: show top-level alert and inline field error
+        setError(msg);
+        setFieldError("dateOfBirth", { type: "manual", message: msg as any });
+        return;
+      }
+
       fieldsToValidate = ["firstName", "lastName", "phoneNumber", "dateOfBirth"];
     }
 
@@ -116,7 +209,7 @@ export default function SignupPage() {
                   type="email"
                   className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border dark:bg-gray-800 dark:border-gray-700 dark:focus:border-blue-400 dark:focus:ring-blue-400 dark:text-gray-100"
                 />
-                {errors.email && <p className="mt-1 text-sm text-red-600">{errors.email.message}</p>}
+                {!error && errors.email && <p className="mt-1 text-sm text-red-600">{errors.email.message}</p>}
               </div>
 
               <div>
@@ -144,7 +237,7 @@ export default function SignupPage() {
                   type="password"
                   className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border dark:bg-gray-800 dark:border-gray-700 dark:focus:border-blue-400 dark:focus:ring-blue-400 dark:text-gray-100"
                 />
-                {errors.password && errors.password.message && (
+                {!error && errors.password && errors.password.message && (
                   <p className="mt-1 text-sm text-red-600">{errors.password.message}</p>
                 )}
               </div>
@@ -161,7 +254,7 @@ export default function SignupPage() {
                   type="password"
                   className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border dark:bg-gray-800 dark:border-gray-700 dark:focus:border-blue-400 dark:focus:ring-blue-400 dark:text-gray-100"
                 />
-                {errors.confirmPassword && (
+                {!error && errors.confirmPassword && (
                   <p className="mt-1 text-sm text-red-600">{errors.confirmPassword.message}</p>
                 )}
               </div>
@@ -180,7 +273,7 @@ export default function SignupPage() {
                     type="text"
                     className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border dark:bg-gray-800 dark:border-gray-700 dark:focus:border-blue-400 dark:focus:ring-blue-400 dark:text-gray-100"
                   />
-                  {errors.firstName && <p className="mt-1 text-sm text-red-600">{errors.firstName.message}</p>}
+                  {!error && errors.firstName && <p className="mt-1 text-sm text-red-600">{errors.firstName.message}</p>}
                 </div>
 
                 <div>
@@ -192,7 +285,7 @@ export default function SignupPage() {
                     type="text"
                     className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border dark:bg-gray-800 dark:border-gray-700 dark:focus:border-blue-400 dark:focus:ring-blue-400 dark:text-gray-100"
                   />
-                  {errors.lastName && <p className="mt-1 text-sm text-red-600">{errors.lastName.message}</p>}
+                  {!error && errors.lastName && <p className="mt-1 text-sm text-red-600">{errors.lastName.message}</p>}
                 </div>
               </div>
 
@@ -212,7 +305,7 @@ export default function SignupPage() {
                   placeholder="1234567890"
                   className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border dark:bg-gray-800 dark:border-gray-700 dark:focus:border-blue-400 dark:focus:ring-blue-400 dark:text-gray-100"
                 />
-                {errors.phoneNumber && <p className="mt-1 text-sm text-red-600">{errors.phoneNumber.message}</p>}
+                {!error && errors.phoneNumber && <p className="mt-1 text-sm text-red-600">{errors.phoneNumber.message}</p>}
               </div>
 
               <div>
@@ -224,7 +317,7 @@ export default function SignupPage() {
                   type="date"
                   className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border dark:bg-gray-800 dark:border-gray-700 dark:focus:border-blue-400 dark:focus:ring-blue-400 dark:text-gray-100"
                 />
-                {errors.dateOfBirth && <p className="mt-1 text-sm text-red-600">{errors.dateOfBirth.message}</p>}
+                {!error && errors.dateOfBirth && <p className="mt-1 text-sm text-red-600">{errors.dateOfBirth.message}</p>}
               </div>
             </div>
           )}
@@ -247,7 +340,7 @@ export default function SignupPage() {
                   placeholder="123456789"
                   className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border dark:bg-gray-800 dark:border-gray-700 dark:focus:border-blue-400 dark:focus:ring-blue-400 dark:text-gray-100"
                 />
-                {errors.ssn && <p className="mt-1 text-sm text-red-600">{errors.ssn.message}</p>}
+                {!error && errors.ssn && <p className="mt-1 text-sm text-red-600">{errors.ssn.message}</p>}
               </div>
 
               <div>
@@ -259,7 +352,7 @@ export default function SignupPage() {
                   type="text"
                   className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border dark:bg-gray-800 dark:border-gray-700 dark:focus:border-blue-400 dark:focus:ring-blue-400 dark:text-gray-100"
                 />
-                {errors.address && <p className="mt-1 text-sm text-red-600">{errors.address.message}</p>}
+                {!error && errors.address && <p className="mt-1 text-sm text-red-600">{errors.address.message}</p>}
               </div>
 
               <div className="grid grid-cols-6 gap-4">
@@ -272,7 +365,7 @@ export default function SignupPage() {
                     type="text"
                     className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border dark:bg-gray-800 dark:border-gray-700 dark:focus:border-blue-400 dark:focus:ring-blue-400 dark:text-gray-100"
                   />
-                  {errors.city && <p className="mt-1 text-sm text-red-600">{errors.city.message}</p>}
+                  {!error && errors.city && <p className="mt-1 text-sm text-red-600">{errors.city.message}</p>}
                 </div>
 
                 <div className="col-span-1">
@@ -291,7 +384,7 @@ export default function SignupPage() {
                     placeholder="CA"
                     className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border dark:bg-gray-800 dark:border-gray-700 dark:focus:border-blue-400 dark:focus:ring-blue-400 dark:text-gray-100"
                   />
-                  {errors.state && <p className="mt-1 text-sm text-red-600">{errors.state.message}</p>}
+                  {!error && errors.state && <p className="mt-1 text-sm text-red-600">{errors.state.message}</p>}
                 </div>
 
                 <div className="col-span-2">
@@ -310,7 +403,7 @@ export default function SignupPage() {
                     placeholder="12345"
                     className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border dark:bg-gray-800 dark:border-gray-700 dark:focus:border-blue-400 dark:focus:ring-blue-400 dark:text-gray-100"
                   />
-                  {errors.zipCode && <p className="mt-1 text-sm text-red-600">{errors.zipCode.message}</p>}
+                  {!error && errors.zipCode && <p className="mt-1 text-sm text-red-600">{errors.zipCode.message}</p>}
                 </div>
               </div>
             </div>
