@@ -37,7 +37,6 @@ export const authRouter = router({
 
       const hashedPassword = await bcrypt.hash(input.password, 10);
 
-      // Compute deterministic lookup hash and last4 for SSN; never store plaintext moving forward
       const { ssn, ...rest } = input;
       const ssn_hash = ssnLookupHash(ssn);
       const ssn_last4 = ssnLast4(ssn);

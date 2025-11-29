@@ -8,7 +8,7 @@ if (!HMAC_KEY) {
 }
 
 export function ssnLookupHash(ssn: string): string {
-  const key = Buffer.from(HMAC_KEY, "utf8");
+  const key = Buffer.from(HMAC_KEY!, "utf8");
   return crypto.createHmac("sha256", key).update(ssn).digest("hex");
 }
 
