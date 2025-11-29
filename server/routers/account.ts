@@ -83,7 +83,15 @@ export const accountRouter = router({
     .mutation(async ({ input, ctx }) => {
       // Normalize amount to a number with 2 decimal places (cents precision)
       const rawAmount = parseFloat(input.amount.toString());
+      if (!isFinite(rawAmount) || isNaN(rawAmount)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid amount" });
+      }
       const amount = Number(rawAmount.toFixed(2));
+
+      // Reject zero or near-zero amounts after rounding (must be at least $0.01)
+      if (amount < 0.01) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Amount must be at least $0.01" });
+      }
 
       // Verify account belongs to user
       const account = await db
