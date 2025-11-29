@@ -2,7 +2,7 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import { CreateNextContextOptions } from "@trpc/server/adapters/next";
 import { FetchCreateContextFnOptions } from "@trpc/server/adapters/fetch";
 import jwt from "jsonwebtoken";
-import { db } from "@/lib/db";
+import { db, closeDb } from "@/lib/db";
 import { sessions, users } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 
@@ -90,4 +90,33 @@ export const protectedProcedure = t.procedure.use(async ({ ctx, next }) => {
       user: ctx.user,
     },
   });
+});
+
+// Graceful shutdown: close DB handle on process exit/signals to avoid leaked file descriptors
+async function gracefulShutdown(reason?: string) {
+  try {
+    // eslint-disable-next-line no-console
+    console.log("Server shutting down", reason || "");
+    closeDb();
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error("Error during graceful shutdown:", err);
+  } finally {
+    // allow logs to flush
+    setTimeout(() => process.exit(0), 100);
+  }
+}
+
+process.once("SIGINT", () => gracefulShutdown("SIGINT"));
+process.once("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.once("beforeExit", () => gracefulShutdown("beforeExit"));
+process.on("uncaughtException", (err) => {
+  // eslint-disable-next-line no-console
+  console.error("uncaughtException:", err);
+  gracefulShutdown("uncaughtException");
+});
+process.on("unhandledRejection", (reason) => {
+  // eslint-disable-next-line no-console
+  console.error("unhandledRejection:", reason);
+  gracefulShutdown("unhandledRejection");
 });

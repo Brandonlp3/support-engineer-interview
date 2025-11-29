@@ -4,15 +4,15 @@ import * as schema from "./schema";
 
 const dbPath = "bank.db";
 
+// Module-level singleton SQLite instance used by the app
 const sqlite = new Database(dbPath);
 export const db = drizzle(sqlite, { schema });
 
-const connections: Database.Database[] = [];
-
+/**
+ * Initialize DB schema if missing. This uses the singleton `sqlite` instance
+ * and DOES NOT open additional connections to avoid resource leaks.
+ */
 export function initDb() {
-  const conn = new Database(dbPath);
-  connections.push(conn);
-
   // Create tables if they don't exist
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS users (
@@ -65,3 +65,21 @@ export function initDb() {
 
 // Initialize database on import
 initDb();
+
+/**
+ * Close database connections held by this module.
+ * Call this during graceful shutdown to release file handles.
+ */
+export function closeDb() {
+  try {
+    // close the better-sqlite3 connection
+    sqlite.close();
+    // drizzle wrapper doesn't need explicit close beyond closing sqlite
+    // log for observability
+    // eslint-disable-next-line no-console
+    console.log("Closed SQLite database connection.");
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn("Error closing SQLite DB:", err);
+  }
+}
