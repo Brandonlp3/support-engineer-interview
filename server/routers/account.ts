@@ -170,8 +170,15 @@ export const accountRouter = router({
           )
           .get(input.accountId);
 
-        const balanceRow = sqlite.prepare(`SELECT balance FROM accounts WHERE id = ?`).get(input.accountId);
-        const newBalance = Number(Number(balanceRow.balance ?? 0).toFixed(2));
+        const balanceRow = sqlite.prepare(`SELECT balance FROM accounts WHERE id = ?`).get(input.accountId) as
+          | { balance?: number | string }
+          | undefined;
+        // Normalize balance value to a number and avoid NaN
+        const rawBalance = balanceRow?.balance ?? 0;
+        const parsedBalance =
+          typeof rawBalance === "string" ? parseFloat(rawBalance) : Number(rawBalance);
+        const safeBalance = Number.isFinite(parsedBalance) ? parsedBalance : 0;
+        const newBalance = Number(Number(safeBalance).toFixed(2));
 
         return { transaction: transactionRow, newBalance };
       });
