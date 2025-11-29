@@ -6,6 +6,7 @@ const dbPath = "bank.db";
 
 // Module-level singleton SQLite instance used by the app
 const sqlite = new Database(dbPath);
+export { sqlite };
 export const db = drizzle(sqlite, { schema });
 
 /**

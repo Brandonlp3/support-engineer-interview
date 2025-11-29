@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { protectedProcedure, router } from "../trpc";
-import { db } from "@/lib/db";
+import { db, sqlite } from "@/lib/db";
 import { accounts, transactions } from "@/lib/db/schema";
 import { eq, and, desc } from "drizzle-orm";
 import crypto from "crypto";
@@ -132,41 +132,44 @@ export const accountRouter = router({
         });
       }
 
-      // Create transaction (record the funding)
-      await db.insert(transactions).values({
-        accountId: input.accountId,
-        type: "deposit",
-        amount,
-        description: `Funding from ${input.fundingSource.type}`,
-        status: "completed",
-        processedAt: new Date().toISOString(),
+      // Perform insert + balance update atomically inside a single DB transaction
+      const txn = sqlite.transaction(() => {
+        // Insert transaction row
+        const insertStmt = sqlite.prepare(
+          `INSERT INTO transactions (account_id, type, amount, description, status, processed_at, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
+        );
+        const nowIso = new Date().toISOString();
+        insertStmt.run(
+          input.accountId,
+          "deposit",
+          amount,
+          `Funding from ${input.fundingSource.type}`,
+          "completed",
+          nowIso,
+          nowIso
+        );
+
+        // Update balance using a single SQL expression to avoid race conditions
+        const updateStmt = sqlite.prepare(`UPDATE accounts SET balance = round(balance + ?, 2) WHERE id = ?`);
+        updateStmt.run(amount, input.accountId);
+
+        // Read back the most-recent transaction for this account and the new balance
+        const transactionRow = sqlite
+          .prepare(
+            `SELECT * FROM transactions WHERE account_id = ? ORDER BY created_at DESC LIMIT 1`
+          )
+          .get(input.accountId);
+
+        const balanceRow = sqlite.prepare(`SELECT balance FROM accounts WHERE id = ?`).get(input.accountId);
+        const newBalance = Number(Number(balanceRow.balance ?? 0).toFixed(2));
+
+        return { transaction: transactionRow, newBalance };
       });
 
-      // Compute new balance using fixed 2-decimal arithmetic to avoid floating point drift
-      const currentBalance = Number(Number(account.balance).toFixed(2));
-      const newBalance = Number((currentBalance + amount).toFixed(2));
+      const { transaction, newBalance } = txn();
 
-      // Persist updated balance
-      await db
-        .update(accounts)
-        .set({
-          balance: newBalance,
-        })
-        .where(eq(accounts.id, input.accountId));
-
-      // Fetch the created transaction for this account (most-recent)
-      const transaction = await db
-        .select()
-        .from(transactions)
-        .where(eq(transactions.accountId, input.accountId))
-        .orderBy(desc(transactions.createdAt))
-        .limit(1)
-        .get();
-
-      return {
-        transaction,
-        newBalance,
-      };
+      return { transaction, newBalance };
     }),
 
   getTransactions: protectedProcedure
