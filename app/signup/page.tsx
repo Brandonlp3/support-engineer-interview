@@ -6,28 +6,6 @@ import { useForm } from "react-hook-form";
 import { trpc } from "@/lib/trpc/client";
 import Link from "next/link";
 
-function PasswordChecklist({ password }: { password: string }) {
-  const commonPasswords = ["password", "12345678", "qwerty"];
-  const checks = [
-    { key: 'length', ok: password.length >= 8, label: 'At least 8 characters' },
-    { key: 'upper', ok: /[A-Z]/.test(password), label: 'An uppercase letter (A-Z)' },
-    { key: 'lower', ok: /[a-z]/.test(password), label: 'A lowercase letter (a-z)' },
-    { key: 'number', ok: /\d/.test(password), label: 'A number (0-9)' },
-    { key: 'special', ok: /[!@#$%^&*(),.?":{}|<>\-=_+\[\]\\/`~;']/.test(password), label: 'A special character (!@#$...)' },
-    { key: 'notCommon', ok: password ? !commonPasswords.includes(password.toLowerCase()) : true, label: 'Not a common password' },
-  ];
-
-  return (
-    <ul className="mt-2 space-y-1 text-sm">
-      {checks.map((c) => (
-        <li key={c.key} className={c.ok ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-300'}>
-          {c.ok ? '✓' : '•'} {c.label}
-        </li>
-      ))}
-    </ul>
-  );
-}
-
 type SignupFormData = {
   email: string;
   password: string;
@@ -54,15 +32,41 @@ export default function SignupPage() {
     formState: { errors },
     watch,
     trigger,
+    setError: setFieldError,
   } = useForm<SignupFormData>();
   const signupMutation = trpc.auth.signup.useMutation();
 
   const password = watch("password");
 
+  function getPasswordIssues(pw: string) {
+    const issues: string[] = [];
+    const commonPasswords = ["password", "12345678", "qwerty"];
+    if (pw.length < 8) issues.push("Password must be at least 8 characters");
+    if (!/[A-Z]/.test(pw)) issues.push("Password must contain an uppercase letter");
+    if (!/[a-z]/.test(pw)) issues.push("Password must contain a lowercase letter");
+    if (!/\d/.test(pw)) issues.push("Password must contain a number");
+    if (!/[!@#$%^&*(),.?":{}|<>\-=_+\[\]\\/`~;']/.test(pw)) issues.push("Password must contain a special character");
+    if (pw && commonPasswords.includes(pw.toLowerCase())) issues.push("Password is too common");
+    return issues;
+  }
+
   const nextStep = async () => {
+    // clear previous top-level error
+    setError("");
+
     let fieldsToValidate: (keyof SignupFormData)[] = [];
 
     if (step === 1) {
+      // show all unmet password requirements (do not allow progression)
+      const pwIssues = getPasswordIssues(password || "");
+      if (pwIssues.length > 0) {
+        const msg = pwIssues.join("; ");
+        // don't set the top-level `error` here to avoid duplicating the alert box;
+        // set the field-level error so the message appears inline under the password field
+        setFieldError("password", { type: "manual", message: msg as any });
+        return;
+      }
+
       fieldsToValidate = ["email", "password", "confirmPassword"];
     } else if (step === 2) {
       fieldsToValidate = ["firstName", "lastName", "phoneNumber", "dateOfBirth"];
@@ -143,8 +147,6 @@ export default function SignupPage() {
                 {errors.password && errors.password.message && (
                   <p className="mt-1 text-sm text-red-600">{errors.password.message}</p>
                 )}
-
-                <PasswordChecklist password={password || ""} />
               </div>
 
               <div>

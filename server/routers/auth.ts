@@ -6,6 +6,7 @@ import { publicProcedure, router } from "../trpc";
 import { db } from "@/lib/db";
 import { users, sessions } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
+import { date } from "drizzle-orm/mysql-core";
 
 export const authRouter = router({
   signup: publicProcedure
@@ -22,7 +23,50 @@ export const authRouter = router({
         firstName: z.string().min(1),
         lastName: z.string().min(1),
         phoneNumber: z.string().regex(/^\+?\d{10,15}$/),
-        dateOfBirth: z.string(),
+        dateOfBirth: z
+                      .string()
+                      .regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date format")
+                      .refine(
+                        (date) => {
+                          const dob = new Date(date);
+                          const today = new Date();
+                          const age = today.getFullYear() - dob.getFullYear();
+                          const monthDiff = today.getMonth() - dob.getMonth();
+                          const dayDiff = today.getDate() - dob.getDate();
+                          
+                          // Adjust age if birthday hasn't occurred this year
+                          const actualAge = monthDiff < 0 || (monthDiff === 0 && dayDiff < 0) 
+                            ? age - 1 
+                            : age;
+                          
+                          return actualAge >= 18;
+                        },
+                        { message: "You must be at least 18 years old" }
+                      )
+                      .refine(
+                        (date) => {
+                          const dob = new Date(date);
+                          const today = new Date();
+                          return dob < today;
+                        },
+                        { message: "Date of birth cannot be in the future" }
+                      )
+                      .refine(
+                        (date) => {
+                          const dob = new Date(date);
+                          const earliestDate = new Date("1900-01-01");
+                          return dob > earliestDate;
+                        }, 
+                        { message: "Invalid date of birth" }
+                      )
+                      .refine(
+                        (date) => {
+                          const dob = new Date(date);
+                          const minDate = new Date();
+                          minDate.setFullYear(minDate.getFullYear() - 120);
+                          return dob > minDate;
+                        },
+                        { message: "Invalid date of birth" }),
         ssn: z.string().regex(/^\d{9}$/),
         address: z.string().min(1),
         city: z.string().min(1),
