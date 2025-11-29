@@ -33,6 +33,7 @@ export default function SignupPage() {
     watch,
     trigger,
     setError: setFieldError,
+    clearErrors,
   } = useForm<SignupFormData>();
   const signupMutation = trpc.auth.signup.useMutation();
 
@@ -171,7 +172,16 @@ export default function SignupPage() {
     }
   };
 
-  const prevStep = () => setStep(step - 1);
+  const prevStep = () => {
+    // clear top-level and field errors when navigating between steps
+    setError("");
+    try {
+      clearErrors();
+    } catch (e) {
+      // ignore if clearErrors not available for some reason
+    }
+    setStep(step - 1);
+  };
 
   const onSubmit = async (data: SignupFormData) => {
     try {

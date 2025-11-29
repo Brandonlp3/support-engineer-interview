@@ -5,6 +5,7 @@ import { TRPCError } from "@trpc/server";
 import { publicProcedure, router } from "../trpc";
 import { db } from "@/lib/db";
 import { users, sessions } from "@/lib/db/schema";
+import { ssnLookupHash, ssnLast4 } from "@/lib/crypto/ssn";
 import { eq } from "drizzle-orm";
 import { date } from "drizzle-orm/mysql-core";
 
@@ -79,20 +80,35 @@ export const authRouter = router({
       })
     )
     .mutation(async ({ input, ctx }) => {
-      const existingUser = await db.select().from(users).where(eq(users.email, input.email)).get();
+      // Compute deterministic lookup hash and last4 for SSN early so we can detect conflicts
+      const { ssn, ...rest } = input;
+      const ssn_hash = ssnLookupHash(ssn);
+      const ssn_last4 = ssnLast4(ssn);
 
-      if (existingUser) {
+      // Check for existing user by email or by SSN lookup hash
+      const existingByEmail = await db.select().from(users).where(eq(users.email, input.email)).get();
+      if (existingByEmail) {
         throw new TRPCError({
           code: "CONFLICT",
-          message: "User already exists",
+          message: "User already exists with that email",
+        });
+      }
+
+      const existingBySSN = await db.select().from(users).where(eq(users.ssnHash, ssn_hash)).get();
+      if (existingBySSN) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "An account with that Social Security Number already exists",
         });
       }
 
       const hashedPassword = await bcrypt.hash(input.password, 10);
 
       await db.insert(users).values({
-        ...input,
+        ...rest,
         password: hashedPassword,
+        ssnHash: ssn_hash,
+        ssnLast4: ssn_last4,
       });
 
       // Fetch the created user
