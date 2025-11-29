@@ -6,6 +6,28 @@ import { useForm } from "react-hook-form";
 import { trpc } from "@/lib/trpc/client";
 import Link from "next/link";
 
+function PasswordChecklist({ password }: { password: string }) {
+  const commonPasswords = ["password", "12345678", "qwerty"];
+  const checks = [
+    { key: 'length', ok: password.length >= 8, label: 'At least 8 characters' },
+    { key: 'upper', ok: /[A-Z]/.test(password), label: 'An uppercase letter (A-Z)' },
+    { key: 'lower', ok: /[a-z]/.test(password), label: 'A lowercase letter (a-z)' },
+    { key: 'number', ok: /\d/.test(password), label: 'A number (0-9)' },
+    { key: 'special', ok: /[!@#$%^&*(),.?":{}|<>\-=_+\[\]\\/`~;']/.test(password), label: 'A special character (!@#$...)' },
+    { key: 'notCommon', ok: password ? !commonPasswords.includes(password.toLowerCase()) : true, label: 'Not a common password' },
+  ];
+
+  return (
+    <ul className="mt-2 space-y-1 text-sm">
+      {checks.map((c) => (
+        <li key={c.key} className={c.ok ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-300'}>
+          {c.ok ? '✓' : '•'} {c.label}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 type SignupFormData = {
   email: string;
   password: string;
@@ -109,13 +131,20 @@ export default function SignupPage() {
                         const commonPasswords = ["password", "12345678", "qwerty"];
                         return !commonPasswords.includes(value.toLowerCase()) || "Password is too common";
                       },
+                      hasUpper: (value) => /[A-Z]/.test(value) || "Password must contain an uppercase letter",
+                      hasLower: (value) => /[a-z]/.test(value) || "Password must contain a lowercase letter",
                       hasNumber: (value) => /\d/.test(value) || "Password must contain a number",
+                      hasSpecial: (value) => /[!@#$%^&*(),.?":{}|<>\-=_+\[\]\\/`~;']/.test(value) || "Password must contain a special character",
                     },
                   })}
                   type="password"
                   className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border dark:bg-gray-800 dark:border-gray-700 dark:focus:border-blue-400 dark:focus:ring-blue-400 dark:text-gray-100"
                 />
-                {errors.password && <p className="mt-1 text-sm text-red-600">{errors.password.message}</p>}
+                {errors.password && errors.password.message && (
+                  <p className="mt-1 text-sm text-red-600">{errors.password.message}</p>
+                )}
+
+                <PasswordChecklist password={password || ""} />
               </div>
 
               <div>
