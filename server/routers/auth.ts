@@ -117,10 +117,6 @@ export const authRouter = router({
 
       const hashedPassword = await bcrypt.hash(input.password, 10);
 
-      const { ssn, ...rest } = input;
-      const ssn_hash = ssnLookupHash(ssn);
-      const ssn_last4 = ssnLast4(ssn);
-
       await db.insert(users).values({
         ...rest,
         password: hashedPassword,
