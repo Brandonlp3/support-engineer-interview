@@ -3,6 +3,22 @@
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { trpc } from "@/lib/trpc/client";
+import React from "react";
+
+function detectCardType(number?: string) {
+  const digits = (number || "").replace(/\D/g, "");
+  if (!digits) return "Unknown";
+  if (/^4/.test(digits)) return "Visa";
+  if (/^(5[1-5]|2(2[2-9]|[3-6]\d|7[01]|720))/.test(digits)) return "Mastercard";
+  if (/^3[47]/.test(digits)) return "American Express";
+  if (/^(6011|65|64[4-9]|622)/.test(digits)) return "Discover";
+  return "Other";
+}
+
+function CardTypeIndicator({ accountNumber }: { accountNumber: string }) {
+  const type = detectCardType(accountNumber);
+  return <strong className="ml-1">{type}</strong>;
+}
 
 interface FundingModalProps {
   accountId: number;
@@ -113,8 +129,9 @@ export function FundingModal({ accountId, onClose, onSuccess }: FundingModalProp
               {...register("accountNumber", {
                 required: `${fundingType === "card" ? "Card" : "Account"} number is required`,
                 pattern: {
-                  value: fundingType === "card" ? /^\d{16}$/ : /^\d+$/,
-                  message: fundingType === "card" ? "Card number must be 16 digits" : "Invalid account number",
+                  // Accept common card lengths (13-19) for card numbers; bank accounts remain digits
+                  value: fundingType === "card" ? /^\d{13,19}$/ : /^\d+$/,
+                  message: fundingType === "card" ? "Card number must be 13-19 digits" : "Invalid account number",
                 },
                 validate: {
                   validCard: (value) => {
@@ -148,6 +165,10 @@ export function FundingModal({ accountId, onClose, onSuccess }: FundingModalProp
             />
             {errors.accountNumber && <p className="mt-1 text-sm text-red-600">{errors.accountNumber.message}</p>}
           </div>
+
+          {fundingType === "card" && (
+            <div className="text-sm text-gray-500 mt-1">Supported card lengths: 13–19 digits. Card type detected: <CardTypeIndicator accountNumber={watch('accountNumber') || ''} /></div>
+          )}
 
           {fundingType === "bank" && (
             <div>
