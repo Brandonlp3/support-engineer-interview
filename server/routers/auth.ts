@@ -213,30 +213,46 @@ export const authRouter = router({
     }),
 
   logout: publicProcedure.mutation(async ({ ctx }) => {
-    if (ctx.user) {
-      // Delete session from database
-      let token: string | undefined;
-      if ("cookies" in ctx.req) {
-        token = (ctx.req as any).cookies.session;
-      } else {
-        const cookieHeader = ctx.req.headers.get?.("cookie") || (ctx.req.headers as any).cookie;
-        token = cookieHeader
-          ?.split("; ")
-          .find((c: string) => c.startsWith("session="))
-          ?.split("=")[1];
-      }
-      if (token) {
+    // Attempt to read the session token from the request
+    let token: string | undefined;
+    if ("cookies" in ctx.req) {
+      token = (ctx.req as any).cookies?.session;
+    } else {
+      const cookieHeader = ctx.req.headers.get?.("cookie") || (ctx.req.headers as any).cookie;
+      token = cookieHeader
+        ?.split("; ")
+        .find((c: string) => c.startsWith("session="))
+        ?.split("=")[1];
+    }
+
+    let deleted = false;
+    if (token) {
+      // Check whether a session with this token exists and delete it
+      const existing = await db.select().from(sessions).where(eq(sessions.token, token)).get();
+      if (existing) {
         await db.delete(sessions).where(eq(sessions.token, token));
+        deleted = true;
       }
     }
 
+    // Clear the cookie for the client regardless
     if ("setHeader" in ctx.res) {
       ctx.res.setHeader("Set-Cookie", `session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0`);
     } else {
       (ctx.res as Headers).set("Set-Cookie", `session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0`);
     }
 
-    return { success: true, message: ctx.user ? "Logged out successfully" : "No active session" };
+    if (deleted) {
+      return { success: true, message: "Logged out successfully" };
+    }
+
+    // No session was deleted. If ctx.user exists it means the context had a valid user
+    // (but token may not have been provided or matched), so report accurately.
+    if (ctx.user) {
+      return { success: false, message: "No session token found to delete; client cookie may be missing" };
+    }
+
+    return { success: false, message: "No active session" };
   }),
   logoutAll: publicProcedure.mutation(async ({ ctx }) => {
     if (!ctx.user) {
